@@ -71,7 +71,7 @@ class ProcessInstance[P[_], T[_], S, E](processType: String,
     case Initialize(markingData, state) ⇒
 
       val initialMarking = unmarshal[P](markingData, id => topology.places.getById(id, "place in petrinet"))
-      val uninitialized = Instance.uninitialized[P, T, S, E](processTopology)
+      val uninitialized = Instance.uninitialized[P, T, S](processTopology)
       val event = InitializedEvent(initialMarking, state)
 
       system.eventStream.publish(ProcessInstanceEvent(processType, processId, event))
@@ -95,7 +95,7 @@ class ProcessInstance[P[_], T[_], S, E](processType: String,
 
   }
 
-  def waitForDeleteConfirmation(instance: Instance[P, T, S, E]): Receive = {
+  def waitForDeleteConfirmation(instance: Instance[P, T, S]): Receive = {
     case DeleteMessagesSuccess(toSequenceNr) =>
       log.debug(s"Process history successfully deleted (up to event sequence $toSequenceNr), stopping the actor")
       context.stop(context.self)
@@ -104,7 +104,7 @@ class ProcessInstance[P[_], T[_], S, E](processType: String,
       context become running(instance, Map.empty)
   }
 
-  def running(instance: Instance[P, T, S, E],
+  def running(instance: Instance[P, T, S],
               scheduledRetries: Map[Long, Cancellable]): Receive = {
 
     case Stop(deleteHistory) ⇒
@@ -208,7 +208,7 @@ class ProcessInstance[P[_], T[_], S, E](processType: String,
         case Some(correlationId) if alreadyReceived(correlationId) =>
             sender() ! AlreadyReceived(correlationId)
         case _ =>
-          runtime.jobPicker.createJob[S, Any, E](transition, input, correlationIdOption).run(instance).value match {
+          runtime.jobPicker.createJob[S, Any](transition, input, correlationIdOption).run(instance).value match {
             case (updatedInstance, Right(job)) ⇒
               executeJob(job, sender())
               context become running(updatedInstance, scheduledRetries)
@@ -224,7 +224,7 @@ class ProcessInstance[P[_], T[_], S, E](processType: String,
       sender() ! AlreadyInitialized
   }
 
-  def step(instance: Instance[P, T, S, E]): (Instance[P, T, S, E], Set[Job[P, T, S]]) = {
+  def step(instance: Instance[P, T, S]): (Instance[P, T, S], Set[Job[P, T, S]]) = {
 
     runtime.jobPicker.allEnabledJobs.run(instance).value match {
       case (updatedInstance, jobs) ⇒
@@ -254,7 +254,7 @@ class ProcessInstance[P[_], T[_], S, E](processType: String,
     }
   }
 
-  def scheduleFailedJobsForRetry(instance: Instance[P, T, S, E]): Map[Long, Cancellable] = {
+  def scheduleFailedJobsForRetry(instance: Instance[P, T, S]): Map[Long, Cancellable] = {
     instance.jobs.values.foldLeft(Map.empty[Long, Cancellable]) {
       case (map, j @ Job(_, _, _, _, _, _, Some(com.ing.baker.petrinet.runtime.ExceptionState(failureTime, _, _, RetryWithDelay(delay))))) ⇒
         val newDelay = failureTime + delay - System.currentTimeMillis()
@@ -277,7 +277,7 @@ class ProcessInstance[P[_], T[_], S, E](processType: String,
       Recovery.none
   }
 
-  override def onRecoveryCompleted(instance: Instance[P, T, S, E]) = {
+  override def onRecoveryCompleted(instance: Instance[P, T, S]) = {
     val scheduledRetries = scheduleFailedJobsForRetry(instance)
     val (updatedInstance, jobs) = step(instance)
     context become running(updatedInstance, scheduledRetries)
