@@ -175,9 +175,9 @@ trait ProtoEventAdapter {
               val t = protobuf.EventTransition(Option(toProto(eventDescriptor).asInstanceOf[protobuf.EventDescriptor]), Option(isSensoryEvent), maxFiringLimit)
               protobuf.Node(protobuf.Node.OneofNode.EventTransition(t))
 
-            case il.petrinet.IntermediateTransition(label) =>
-              val t = protobuf.IntermediateTransition(Option(label))
-              protobuf.Node(protobuf.Node.OneofNode.IntermediateTransition(t))
+//            case il.petrinet.IntermediateTransition(label) =>
+//              val t = protobuf.IntermediateTransition(Option(label))
+//              protobuf.Node(protobuf.Node.OneofNode.IntermediateTransition(t))
 
             case il.petrinet.MissingEventTransition(label) =>
               val t = protobuf.MissingEventTransition(Option(label))
@@ -330,8 +330,8 @@ trait ProtoEventAdapter {
             case OneofNode.EventTransition(protobuf.EventTransition(Some(eventDescriptor), Some(isSensoryEvent), maxFiringLimit)) =>
               Right(il.petrinet.EventTransition(toDomainType[il.EventDescriptor](eventDescriptor), isSensoryEvent, maxFiringLimit))
 
-            case OneofNode.IntermediateTransition(protobuf.IntermediateTransition(Some(label))) =>
-              Right(il.petrinet.IntermediateTransition(label))
+//            case OneofNode.IntermediateTransition(protobuf.IntermediateTransition(Some(label))) =>
+//              Right(il.petrinet.IntermediateTransition(label))
 
             case OneofNode.MissingEventTransition(protobuf.MissingEventTransition(Some(label))) =>
               Right(il.petrinet.MissingEventTransition(label))

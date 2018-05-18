@@ -4,12 +4,11 @@ import java.util.UUID
 import java.util.concurrent.{Executors, TimeUnit}
 
 import akka.actor.ActorSystem
-import akka.persistence.cassandra.testkit.CassandraLauncher
 import com.ing.baker.TestRecipeHelper
+import com.ing.baker.TestRecipeHelper.InitialEvent
 import com.typesafe.config.ConfigFactory
 
-import scala.concurrent.{ExecutionContext, Future}
-import scala.concurrent.duration.Duration
+import scala.concurrent.ExecutionContext
 
 class PerformanceTest extends TestRecipeHelper {
 
@@ -47,12 +46,12 @@ class PerformanceTest extends TestRecipeHelper {
        |baker.actor.read-journal-plugin = "cassandra-query-journal"
        |
        |cassandra-journal.log-queries = off
-       |cassandra-journal.keyspace-autocreate = off
-       |cassandra-journal.tables-autocreate = off
+       |cassandra-journal.keyspace-autocreate = true
+       |cassandra-journal.tables-autocreate = true
        |
        |cassandra-snapshot-store.log-queries = off
-       |cassandra-snapshot-store.keyspace-autocreate = off
-       |cassandra-snapshot-store.tables-autocreate = off
+       |cassandra-snapshot-store.keyspace-autocreate = true
+       |cassandra-snapshot-store.tables-autocreate = true
        |
        |akka.loggers = ["akka.event.slf4j.Slf4jLogger"]
        |akka.loglevel = "DEBUG"
@@ -60,31 +59,29 @@ class PerformanceTest extends TestRecipeHelper {
        |
      """.stripMargin
 
-  val akkaCassandraSystem = ActorSystem("A", ConfigFactory.parseString(cassandraConfig))
+  val akkaCassandraSystem = ActorSystem("Perf", ConfigFactory.parseString(cassandraConfig))
 
   "Baker" should {
 
-    "should bake really fast" in {
+    "should process really fast" in {
 
-      val (baker, recipeId) = setupBakerWithRecipe("R")(akkaCassandraSystem)
+      val (baker, recipeId) = setupBakerWithRecipe("TestRecipe")(akkaCassandraSystem)
 
-      val nrOfBakes = 5 * 1000
+      val nrOfBakes = 100 * 1000
       val nrOfThreads = 8
 
       val executionContext = ExecutionContext.fromExecutor(Executors.newFixedThreadPool(nrOfThreads))
 
       // warmup
 
-      println("Warming up baker with 10 bakes")
-      (1 to 10).foreach { _ =>
-        baker.bake(recipeId, UUID.randomUUID().toString)
-      }
+      val processId = UUID.randomUUID().toString
 
-      val bakeTimer = metrics.timer(MetricRegistry.name("PerformanceTest", "bake"))
+      baker.bake(recipeId, processId)
+      baker.processEvent(processId, InitialEvent("initialIngredient"))
 
-      println("Starting stress testing")
+      val bakeTimer = metrics.timer(MetricRegistry.name("PerformanceTest", "process"))
 
-
+//      println("Starting stress testing")
 
       // stress testing
       (1 to nrOfBakes).foreach { _ =>
@@ -94,15 +91,18 @@ class PerformanceTest extends TestRecipeHelper {
           val time = bakeTimer.time()
 
           try {
-            baker.bake(recipeId, UUID.randomUUID().toString)
+            val processId = UUID.randomUUID().toString
+
+            baker.bake(recipeId, processId)
+            baker.processEvent(processId, InitialEvent("initialIngredient"))
+
           } finally {
             time.stop()
           }
         }
-
       }
 
-      Thread.sleep(1000 * 60)
+      Thread.sleep(1000 * 120)
     }
   }
 }

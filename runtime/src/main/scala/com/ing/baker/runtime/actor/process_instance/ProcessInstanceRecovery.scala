@@ -1,6 +1,7 @@
 package com.ing.baker.runtime.actor.process_instance
 
 import akka.persistence.{PersistentActor, RecoveryCompleted}
+import com.ing.baker.il.petrinet.{EventTransition, MultiFacilitatorTransition}
 import com.ing.baker.petrinet.api._
 import com.ing.baker.petrinet.runtime.EventSourcing._
 import com.ing.baker.petrinet.runtime.{EventSourcing, Instance}
@@ -22,8 +23,22 @@ abstract class ProcessInstanceRecovery[P[_], T[_], S, E](
   def onRecoveryCompleted(state: Instance[P, T, S])
 
   def persistEvent[O](instance: Instance[P, T, S], e: Event)(fn: Event => O): Unit = {
+
+    val async = e match {
+
+      case TransitionFiredEvent(_, MultiFacilitatorTransition(_), _, _, _, _, _, _) => true
+      case TransitionFiredEvent(_, EventTransition(_, false, _), _, _, _, _, _, _) => true
+      case _ => false
+    }
+
     val serializedEvent = serializer.serializeEvent(e)(instance)
-    persist(serializedEvent) { persisted => fn(e) }
+
+//    System.out.println(s"event ${e.getClass.getName}, async: $async")
+
+    if (async)
+      persistAsync(serializedEvent) { persisted => fn(e) }
+    else
+      persist(serializedEvent) { persisted => fn(e) }
   }
 
   private var recoveringState: Instance[P, T, S] = Instance.uninitialized[P, T, S](topology)
