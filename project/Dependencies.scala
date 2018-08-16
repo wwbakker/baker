@@ -20,8 +20,10 @@ object Dependencies {
   val junitInterface =            "com.novocode"               %  "junit-interface"                    % "0.11"
 
   val akkaActor =                 "com.typesafe.akka"          %% "akka-actor"                         % akkaVersion
+  val akkaActorTyped =            "com.typesafe.akka"          %% "akka-actor-typed"                   % akkaVersion
   val akkaStream =                "com.typesafe.akka"          %% "akka-stream"                        % akkaVersion
   val akkaPersistence =           "com.typesafe.akka"          %% "akka-persistence"                   % akkaVersion
+  val akkaPersistenceTyped =      "com.typesafe.akka"          %% "akka-persistence-typed"             % akkaVersion
   val akkaPersistenceQuery =      "com.typesafe.akka"          %% "akka-persistence-query"             % akkaVersion
   val akkaPersistenceCassandra =  "com.typesafe.akka"          %% "akka-persistence-cassandra"         % "0.54"
   val akkaCluster =               "com.typesafe.akka"          %% "akka-cluster"                       % akkaVersion

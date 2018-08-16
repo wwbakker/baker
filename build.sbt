@@ -100,7 +100,9 @@ lazy val recipeRuntime = project.in(file("runtime"))
     libraryDependencies ++=
       compileDeps(
         akkaActor,
+        akkaActorTyped,
         akkaPersistence,
+        akkaPersistenceTyped,
         akkaPersistenceQuery,
         akkaClusterSharding,
         akkaInmemoryJournal,
