@@ -120,6 +120,7 @@ lazy val recipeRuntime = project.in(file("runtime"))
         slf4jApi
       ) ++ testDeps(
         akkaTestKit,
+        akkaTestKitTyped,
         akkaStreamTestKit,
         akkaInmemoryJournal,
         levelDB,
