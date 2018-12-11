@@ -1,15 +1,16 @@
-import Dependencies._
+import Dependencies.{scalaGraph, _}
 import sbt.Keys._
+
+def testScope(project: ProjectReference) = project % "test->test;test->compile"
 
 val commonSettings = Defaults.coreDefaultSettings ++ Seq(
   organization := "com.ing.baker",
   scalaVersion := "2.12.4",
   crossScalaVersions := Seq("2.11.12", "2.12.4"),
-  scalacOptions := Seq("-unchecked", "-deprecation", "-encoding", "utf8", s"-target:jvm-$jvmV"),
-  javacOptions := Seq("-source", jvmV, "-target", jvmV),
-  fork in test := true,
+  fork := true,
   testOptions += Tests.Argument(TestFrameworks.JUnit, "-v"),
-  scalacOptions ++= Seq(
+  javacOptions := Seq("-source", jvmV, "-target", jvmV),
+  scalacOptions := Seq(
     "-unchecked",
     "-deprecation",
     "-feature",
@@ -18,38 +19,36 @@ val commonSettings = Defaults.coreDefaultSettings ++ Seq(
     "-language:existentials",
     "-language:implicitConversions",
     "-language:postfixOps",
+    "-encoding", "utf8",
+    s"-target:jvm-$jvmV",
     "-Xfatal-warnings"
+  ),
+  packageOptions in (Compile, packageBin) +=
+    Package.ManifestAttributes(
+      "Build-Time" -> new java.util.Date().toString,
+      "Build-Commit" -> git.gitHeadCommit.value.getOrElse("No Git Revision Found")
+    )
+)
+
+val dependencyOverrideSettings = Seq(
+  // note that this does NOT add the dependencies, just forces the version
+  dependencyOverrides ++= Seq(
+    catsCore,
+    akkaActor,
+    akkaStream,
+    "com.github.jnr" % "jnr-constants" % "0.9.9"
   )
 )
 
 lazy val noPublishSettings = Seq(
-  publish := (),
-  publishLocal := (),
+  publish := {},
+  publishLocal := {},
   publishArtifact := false
 )
 
-lazy val defaultModuleSettings = commonSettings ++ Revolver.settings ++ SonatypePublish.settings
+lazy val defaultModuleSettings = commonSettings ++ dependencyOverrideSettings ++ Revolver.settings ++ SonatypePublish.settings
 
 lazy val scalaPBSettings = Seq(PB.targets in Compile := Seq(scalapb.gen() -> (sourceManaged in Compile).value))
-
-lazy val petrinetApi = project.in(file("petrinet-api"))
-  .settings(defaultModuleSettings)
-  .settings(
-    moduleName := "petrinet-api",
-    libraryDependencies ++= compileDeps(
-      scalaGraph,
-      catsCore,
-      scalapbRuntime,
-      slf4jApi,
-      kryo,
-      catsEffect) ++ testDeps(
-      scalaCheck,
-      scalaTest,
-      mockito,
-      logback
-    )
-  )
-
 
 lazy val bakertypes = project.in(file("bakertypes"))
   .settings(defaultModuleSettings)
@@ -57,10 +56,12 @@ lazy val bakertypes = project.in(file("bakertypes"))
     moduleName := "baker-types",
     libraryDependencies ++= compileDeps(
       slf4jApi,
+      ficusConfig,
       objenisis,
+      scalapbRuntime,
       jodaTime,
       scalaReflect(scalaVersion.value)
-    ) ++ testDeps(scalaTest, scalaCheck, logback)
+    ) ++ testDeps(scalaTest, scalaCheck, logback, scalaCheck)
   )
 
 lazy val intermediateLanguage = project.in(file("intermediate-language"))
@@ -68,16 +69,16 @@ lazy val intermediateLanguage = project.in(file("intermediate-language"))
   .settings(
     moduleName := "baker-intermediate-language",
     libraryDependencies ++= compileDeps(
+      scalaGraph,
       slf4jApi,
       scalaGraphDot,
-      graphvizJava,
       objenisis,
-      jodaTime
+      typeSafeConfig
     ) ++ testDeps(scalaTest, scalaCheck, logback)
-  ).dependsOn(petrinetApi, bakertypes)
+  ).dependsOn(bakertypes)
 
 
-lazy val recipeRuntime = project.in(file("runtime"))
+lazy val runtime = project.in(file("runtime"))
   .settings(defaultModuleSettings)
   .settings(scalaPBSettings)
   .settings(
@@ -90,24 +91,29 @@ lazy val recipeRuntime = project.in(file("runtime"))
         akkaPersistence,
         akkaPersistenceQuery,
         akkaClusterSharding,
-        akkaDistributedData,
         akkaInmemoryJournal,
         akkaSlf4j,
         akkaStream,
         ficusConfig,
+        catsCore,
+        catsEffect,
         guava,
         chill,
         objenisis,
         scalapbRuntime,
-        kryoSerializers,
         protobufJava,
-        jodaTime,
-        jodaConvert,
+        kryo,
+        kryoSerializers,
         slf4jApi
       ) ++ testDeps(
         akkaTestKit,
         akkaStreamTestKit,
         akkaInmemoryJournal,
+        akkaPersistenceCassandra,
+        levelDB,
+        levelDBJni,
+        betterFiles,
+        graphvizJava,
         junitInterface,
         scalaTest,
         scalaCheck,
@@ -115,7 +121,31 @@ lazy val recipeRuntime = project.in(file("runtime"))
         logback)
         ++ providedDeps(findbugs)
   )
-  .dependsOn(intermediateLanguage, petrinetApi)
+  .dependsOn(intermediateLanguage, testScope(recipeDsl), testScope(recipeCompiler), testScope(bakertypes))
+
+lazy val splitBrainResolver = project.in(file("split-brain-resolver"))
+  .settings(defaultModuleSettings)
+  .settings(
+    moduleName := "baker-split-brain-resolver",
+    // we have to exclude the sources because of a compiler bug: https://issues.scala-lang.org/browse/SI-10134
+    sources in (Compile, doc) := Seq.empty,
+    libraryDependencies ++=
+      compileDeps(
+        akkaActor,
+        akkaCluster,
+        akkaSlf4j,
+        ficusConfig
+      ) ++ testDeps(
+        akkaTestKit,
+        akkaMultiNodeTestkit,
+        scalaTest
+      ) ++ providedDeps(findbugs)
+  )
+  .enablePlugins(MultiJvmPlugin)
+  .configs(MultiJvm)
+  .settings(
+//    logLevel := Level.Debug
+  )
 
 lazy val recipeDsl = project.in(file("recipe-dsl"))
   .settings(defaultModuleSettings)
@@ -128,7 +158,6 @@ lazy val recipeDsl = project.in(file("recipe-dsl"))
         javaxInject,
         paranamer,
         scalaReflect(scalaVersion.value),
-        jodaTime
       ) ++
         testDeps(
           scalaTest,
@@ -146,7 +175,7 @@ lazy val recipeCompiler = project.in(file("compiler"))
     libraryDependencies ++=
       compileDeps(slf4jApi) ++ testDeps(scalaTest, scalaCheck, logback)
   )
-  .dependsOn(recipeDsl, intermediateLanguage, petrinetApi)
+  .dependsOn(recipeDsl, intermediateLanguage, testScope(recipeDsl))
 
 lazy val baas = project.in(file("baas"))
   .settings(defaultModuleSettings)
@@ -155,6 +184,8 @@ lazy val baas = project.in(file("baas"))
     moduleName := "baker-baas",
     libraryDependencies ++=
       compileDeps(
+        kryo,
+        kryoSerializers,
         akkaHttp,
         akkaPersistenceCassandra) ++
       testDeps(
@@ -169,33 +200,10 @@ lazy val baas = project.in(file("baas"))
         scalaCheck
       )
   )
-  .dependsOn(recipeDsl, recipeCompiler, intermediateLanguage, recipeRuntime)
-
-lazy val testModule = project.in(file("test-module"))
-  .settings(defaultModuleSettings)
-  .settings(noPublishSettings)
-  .settings(
-    moduleName := "test-module",
-    libraryDependencies ++=
-      testDeps(
-        akkaSlf4j,
-        akkaTestKit,
-        logback,
-        mockito,
-        scalaTest,
-        junitInterface,
-        levelDB,
-        levelDBJni,
-        scalaCheck,
-//        metrics,
-        akkaCassandra,
-        akkaCassandraLauncher
-      )
-  )
-  .dependsOn(recipeDsl, recipeCompiler, intermediateLanguage, recipeRuntime, baas)
+  .dependsOn(recipeDsl, recipeCompiler, intermediateLanguage, runtime, testScope(runtime))
 
 lazy val baker = project
   .in(file("."))
   .settings(defaultModuleSettings)
   .settings(noPublishSettings)
-  .aggregate(bakertypes, petrinetApi, recipeRuntime, recipeCompiler, recipeDsl, intermediateLanguage, testModule)
+  .aggregate(bakertypes, runtime, recipeCompiler, recipeDsl, intermediateLanguage, splitBrainResolver)

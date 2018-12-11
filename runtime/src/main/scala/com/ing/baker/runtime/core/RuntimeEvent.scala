@@ -1,22 +1,9 @@
 package com.ing.baker.runtime.core
 
 import com.ing.baker.il.EventDescriptor
-import com.ing.baker.types.{Converters, NullValue, Value}
+import com.ing.baker.types.{NullValue, Value}
 
 import scala.collection.JavaConverters._
-
-
-object RuntimeEvent {
-
-  def create(name: String, ingredients: Seq[(String, Any)]): RuntimeEvent = {
-    val ingredientValues = ingredients.map {
-      case (name, obj) => name -> Converters.toValue(obj)
-    }
-
-    RuntimeEvent(name, ingredientValues)
-  }
-
-}
 
 case class RuntimeEvent(name: String,
                         providedIngredients: Seq[(String, Value)]) {
@@ -62,9 +49,11 @@ case class RuntimeEvent(name: String,
             Seq(s"no value was provided for ingredient '${ingredient.name}'")
           // we can only check the class since the type parameters are available on objects
           case Some(NullValue) if !ingredient.`type`.isOption =>
-            Seq(s"NullValue is not allowed for non optional ingredient '${ingredient.name}'")
-          case Some(value) if !value.isInstanceOf(ingredient.`type`)  =>
-            Seq(s"value is not of the correct type for ingredient '${ingredient.name}'")
+            Seq(s"null is not allowed for non optional ingredient '${ingredient.name}'")
+          case Some(value) =>
+            value.validate(ingredient.`type`).map(
+              reason => s"ingredient '${ingredient.name}' has an incorrect type:\n$reason"
+            ).toSeq
           case _ =>
             Seq.empty
         }

@@ -3,9 +3,9 @@ import sbt._
 //noinspection TypeAnnotation
 object Dependencies {
 
-  val akkaVersion = "2.5.11"
+  val akkaVersion = "2.5.17"
   val jvmV = "1.8"
-  val scalapbVersion = com.trueaccord.scalapb.compiler.Version.scalapbVersion
+  val scalapbVersion = scalapb.compiler.Version.scalapbVersion
 
   val typeSafeConfig =            "com.typesafe"               %  "config"                             % "1.3.1"
 
@@ -29,7 +29,7 @@ object Dependencies {
   val akkaSlf4j =                 "com.typesafe.akka"          %% "akka-slf4j"                         % akkaVersion
   val akkaTestKit =               "com.typesafe.akka"          %% "akka-testkit"                       % akkaVersion
   val akkaStreamTestKit =         "com.typesafe.akka"          %% "akka-stream-testkit"                % akkaVersion
-  val akkaDistributedData =       "com.typesafe.akka"          %% "akka-distributed-data"              % akkaVersion
+  val akkaMultiNodeTestkit =      "com.typesafe.akka"          %% "akka-multi-node-testkit"            % akkaVersion
   val akkaHttp =                  "com.typesafe.akka"          %% "akka-http"                          % "10.0.10"
   val levelDB   =                 "org.iq80.leveldb"           %  "leveldb"                            % "0.7"
   val levelDBJni =                "org.fusesource.leveldbjni"  %  "leveldbjni-all"                     % "1.8"
@@ -39,18 +39,19 @@ object Dependencies {
 
   val scalaGraph  =               "org.scala-graph"            %% "graph-core"                         % "1.11.5"
   val scalaGraphDot =             "org.scala-graph"            %% "graph-dot"                          % "1.11.5"
+  val graphvizJava =              "guru.nidi"                  %  "graphviz-java"                      % "0.8.0"
 
   val catsEffect =                "org.typelevel"              %% "cats-effect"                        % "0.10"
   val catsCore =                  "org.typelevel"              %% "cats-core"                          % "1.1.0"
 
-  def scalaReflect(scalaV: String) = "org.scala-lang"             %  "scala-reflect"                   % scalaV
+  def scalaReflect(scalaV: String): ModuleID = "org.scala-lang"%  "scala-reflect"                      % scalaV
   val javaxInject =               "javax.inject"               %  "javax.inject"                       % "1"
 
   val paranamer =                 "com.thoughtworks.paranamer" %  "paranamer"                          % "2.8"
   val guava =                     "com.google.guava"           %  "guava"                              % "19.0"
   val findbugs =                  "com.google.code.findbugs"   %  "jsr305"                             % "1.3.9"
 
-  val scalapbRuntime =            "com.trueaccord.scalapb"     %% "scalapb-runtime"                    % scalapbVersion % "protobuf"
+  val scalapbRuntime =            "com.thesamet.scalapb"       %% "scalapb-runtime"                    % scalapbVersion % "protobuf"
   val chill =                    ("com.twitter"                %% "chill-akka"                         % "0.9.2")
     .exclude("com.typesafe.akka", "akka-actor")
 
@@ -58,14 +59,12 @@ object Dependencies {
 
   val protobufJava =              "com.google.protobuf"        % "protobuf-java"                       % "3.5.1"
 
+  val betterFiles =               "com.github.pathikrit"       %% "better-files"                       % "3.6.0"
+
   val kryoSerializers =           "de.javakaffee"              %  "kryo-serializers"                   % "0.41"
   val objenisis =                 "org.objenesis"              %  "objenesis"                          % "2.5.1"
 
-  val graphvizJava =              "guru.nidi"                  % "graphviz-java"                       % "0.2.2"
-
   val jodaTime =                  "joda-time"                  %  "joda-time"                          % "2.9.9"
-  val jodaConvert =               "org.joda"                   %  "joda-convert"                       % "1.8.1"
-  val scalaXml =                  "org.scala-lang.modules"     %% "scala-xml"                          % "1.0.4"
   val slf4jApi =                  "org.slf4j"                  %  "slf4j-api"                          % "1.7.25"
   val scalaCheck =                "org.scalacheck"             %% "scalacheck"                         % "1.13.4"
 
@@ -77,5 +76,6 @@ object Dependencies {
   def scopeDeps(scope: String, modules: Seq[ModuleID]) =  modules.map(m => m % scope)
   def compileDeps(modules: ModuleID*) = modules.toSeq
   def testDeps(modules: ModuleID*) = scopeDeps("test", modules)
+
   def providedDeps(modules: ModuleID*) = scopeDeps("provided", modules)
 }

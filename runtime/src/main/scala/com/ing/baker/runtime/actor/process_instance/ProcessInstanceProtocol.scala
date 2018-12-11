@@ -1,9 +1,7 @@
 package com.ing.baker.runtime.actor.process_instance
 
-import com.ing.baker.petrinet.api.{HMap, Identifiable, Marking, MultiSet}
-import com.ing.baker.petrinet.runtime.ExceptionStrategy
-import com.ing.baker.petrinet.runtime.ExceptionStrategy.RetryWithDelay
-import com.ing.baker.runtime.actor.InternalBakerMessage
+import com.ing.baker.petrinet.api._
+import com.ing.baker.runtime.actor.serialization.BakerProtoMessage
 
 /**
  * Describes the messages to and from a PetriNetInstance actor.
@@ -11,31 +9,9 @@ import com.ing.baker.runtime.actor.InternalBakerMessage
 object ProcessInstanceProtocol {
 
   /**
-   * Type alias for marking data.
-   */
-  type MarkingData = Map[Long, MultiSet[_]]
-
-  implicit def fromExecutionInstance[P[_], T[_], S](instance: com.ing.baker.petrinet.runtime.Instance[P, T, S])(implicit placeIdentifier: Identifiable[P[_]], transitionIdentifier: Identifiable[T[_]]): InstanceState =
-    InstanceState(instance.sequenceNr, marshal[P](instance.marking), instance.state, instance.jobs.mapValues(fromExecutionJob(_)).map(identity))
-
-  implicit def fromExecutionJob[P[_], T[_], S, E](job: com.ing.baker.petrinet.runtime.Job[P, T, S])(implicit placeIdentifier: Identifiable[P[_]], transitionIdentifier: Identifiable[T[_]]): JobState =
-    JobState(job.id, transitionIdentifier(job.transition.asInstanceOf[T[_]]).value, marshal(job.consume), job.input, job.failure.map(fromExecutionExceptionState))
-
-  implicit def fromExecutionExceptionState(exceptionState: com.ing.baker.petrinet.runtime.ExceptionState): ExceptionState =
-    ExceptionState(exceptionState.failureCount, exceptionState.failureReason, exceptionState.failureStrategy)
-
-  def marshal[P[_]](marking: Marking[P])(implicit identifiable: Identifiable[P[_]]): MarkingData = marking.map {
-    case (p, mset) ⇒ identifiable(p).value -> mset
-  }.toMap
-
-  def unmarshal[P[_]](data: MarkingData, placeById: Long ⇒ P[_]): Marking[P] = HMap[P, MultiSet](data.map {
-    case (id, mset) ⇒ placeById(id) -> mset
-  }.toMap)
-
-  /**
    * A common trait for all commands to a petri net instance.
    */
-  sealed trait Command extends InternalBakerMessage
+  sealed trait Command extends BakerProtoMessage
 
   /**
    * Command to request the current state of the petri net instance.
@@ -49,20 +25,15 @@ object ProcessInstanceProtocol {
 
   object Initialize {
 
-    def apply[P[_]](marking: Marking[P])(implicit placeIdentifier: Identifiable[P[_]]): Initialize = Initialize(marshal[P](marking), null)
+    def apply[P : Identifiable](marking: Marking[P]): Initialize = Initialize(marking.marshall, null)
+
+    def apply[P : Identifiable](marking: Marking[P], state: Any): Initialize = Initialize(marking.marshall, state)
   }
 
   /**
    * Command to initialize a petri net instance.
    */
-  case class Initialize(marking: MarkingData, state: Any) extends Command
-
-  object FireTransition {
-
-    def apply[T[_], I](t: T[I], input: I)(implicit transitionIdentifier: Identifiable[T[_]]): FireTransition = FireTransition(transitionIdentifier(t.asInstanceOf[T[_]]).value, input, None)
-
-    def apply[T[_]](t: T[Unit])(implicit transitionIdentifier: Identifiable[T[_]]): FireTransition = FireTransition(transitionIdentifier(t.asInstanceOf[T[_]]).value, (), None)
-  }
+  case class Initialize(marking: Marking[Id], state: Any) extends Command
 
   /**
    * Command to fire a specific transition with input.
@@ -75,24 +46,31 @@ object ProcessInstanceProtocol {
   /**
    * A common trait for all responses coming from a petri net instance.
    */
-  sealed trait Response extends InternalBakerMessage
+  sealed trait Response extends BakerProtoMessage
 
   /**
    * A response send in case any other command then 'Initialize' is sent to the actor in unitialized state.
    *
-   * @param id The identifier of the uninitialized actor.
+   * @param processId The identifier of the uninitialized actor.
    */
-  case class Uninitialized(id: String) extends Response
+  case class Uninitialized(processId: String) extends Response
 
   /**
    * Returned in case a second Initialize is send after a first is processed
    */
-  case object AlreadyInitialized extends Response
+  case class AlreadyInitialized(processId: String) extends Response
 
   /**
     * Indicates that the received FireTransition command with a specific correlation id was already received.
     */
   case class AlreadyReceived(correlationId: String) extends Response
+
+  object Initialized {
+
+    def apply[P : Identifiable](marking: Marking[P]): Initialized = Initialized(marking.marshall, null)
+
+    def apply[P : Identifiable](marking: Marking[P], state: Any): Initialized = Initialized(marking.marshall, state)
+  }
 
   /**
    * A response indicating that the instance has been initialized in a certain state.
@@ -100,7 +78,7 @@ object ProcessInstanceProtocol {
    * This message is only send in response to an Initialize message.
    */
   case class Initialized(
-    marking: MarkingData,
+    marking: Marking[Id],
     state: Any) extends Response
 
   /**
@@ -115,21 +93,22 @@ object ProcessInstanceProtocol {
    */
   case class TransitionFired(
     jobId: Long,
-    override val transitionId: Long,
+    override val transitionId: Id,
     correlationId: Option[String],
-    consumed: MarkingData,
-    produced: MarkingData,
-    result: InstanceState,
-    newJobsIds: Set[Long]) extends TransitionResponse
+    consumed: Marking[Id],
+    produced: Marking[Id],
+    state: InstanceState,
+    newJobsIds: Set[Long],
+    output: Any) extends TransitionResponse
 
   /**
    * Response indicating that a transition has failed.
    */
   case class TransitionFailed(
     jobId: Long,
-    override val transitionId: Long,
+    override val transitionId: Id,
     correlationId: Option[String],
-    consume: MarkingData,
+    consume: Marking[Id],
     input: Any,
     reason: String,
     strategy: ExceptionStrategy) extends TransitionResponse
@@ -138,7 +117,7 @@ object ProcessInstanceProtocol {
    * Response indicating that the transition could not be fired because it is not enabled.
    */
   case class TransitionNotEnabled(
-    override val transitionId: Long,
+    override val transitionId: Id,
     reason: String) extends TransitionResponse
 
   /**
@@ -149,18 +128,34 @@ object ProcessInstanceProtocol {
     failureReason: String,
     failureStrategy: ExceptionStrategy)
 
+  sealed trait ExceptionStrategy
+
+  object ExceptionStrategy {
+
+    case object Fatal extends ExceptionStrategy
+
+    case object BlockTransition extends ExceptionStrategy
+
+    case class RetryWithDelay(delay: Long) extends ExceptionStrategy {
+      require(delay > 0, "Delay must be greater then zero")
+    }
+
+    case class Continue(marking: Marking[Id], output: Any) extends ExceptionStrategy
+  }
+
+
   /**
    * Response containing the state of the `Job`.
    */
   case class JobState(
       id: Long,
       transitionId: Long,
-      consumedMarking: MarkingData,
+      consumedMarking: Marking[Id],
       input: Any,
       exceptionState: Option[ExceptionState]) {
 
     def isActive: Boolean = exceptionState match {
-      case Some(ExceptionState(_, _, RetryWithDelay(_))) ⇒ true
+      case Some(ExceptionState(_, _, ExceptionStrategy.RetryWithDelay(_))) ⇒ true
       case None                                          ⇒ true
       case _                                             ⇒ false
     }
@@ -171,7 +166,7 @@ object ProcessInstanceProtocol {
    */
   case class InstanceState(
     sequenceNr: Long,
-    marking: MarkingData,
+    marking: Marking[Id],
     state: Any,
     jobs: Map[Long, JobState]) extends Response
 }

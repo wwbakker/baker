@@ -1,10 +1,10 @@
 # BAKER
 
 [![Build Status](https://api.travis-ci.org/ing-bank/baker.png?branch=master)](https://travis-ci.org/ing-bank/baker)
-[![Maven Central](https://img.shields.io/maven-central/v/com.ing.baker/baker-runtime_2.12.svg)](https://maven-badges.herokuapp.com/maven-central/com.ing.baker/baker-runtime_2.12)
+[![Maven Central](https://img.shields.io/maven-metadata/v/http/central.maven.org/maven2/com/ing/baker/baker-runtime_2.12/maven-metadata.xml.svg)](https://maven-badges.herokuapp.com/maven-central/com.ing.baker/baker-runtime_2.12)
 [![codecov.io](http://codecov.io/github/ing-bank/baker/coverage.svg?branch=master)](https://codecov.io/gh/ing-bank/baker?branch=master)
 
-![](baker.png)
+![](baker-logo.png)
 
 # Overview
 
@@ -17,7 +17,7 @@ An introductory presentation of Baker: [Baker talk @ Amsterdam.Scala meetup](htt
 
 A talk about Baker at the Scale By the Bay 2017 conference: [Declare, verify and execute microservices-based process flows](https://www.youtube.com/watch?v=0bWQwUmeXHU).
 
-An example web-shop recipe you can find at: [ExamplesSpec](https://github.com/ing-bank/baker/blob/master/test-module/src/test/scala/com/ing/baker/ExamplesSpec.scala) 
+An example web-shop recipe you can find at: [ExamplesSpec](runtime/src/test/scala/com/ing/baker/runtime/ExamplesSpec.scala) 
 
 WebShop Recipe:
 ```scala
@@ -38,7 +38,7 @@ WebShop Recipe:
 ```
 A visual representation of the WebShop recipe looks like the following, where the events are colored in gray, ingredients in orange and interactions in lilac:
 
-![](webshop.png)
+![](docs/images/webshop.svg)
 
 
 Baker consists of a DSL that allows developers to choose interactions from a catalogue and re-use them in their own recipes.
@@ -75,17 +75,16 @@ Applying Baker will only be successful if you make sure that:
 To get started with SBT, simply add the following to your build.sbt file:
 
 ```
-libraryDependencies += "com.ing.baker" %% "baker-recipe-dsl" % "1.3.2"
-libraryDependencies += "com.ing.baker" %% "baker-runtime" % "1.3.2"
-libraryDependencies += "com.ing.baker" %% "baker-compiler" % "1.3.2"
+libraryDependencies += "com.ing.baker" %% "baker-recipe-dsl" % "2.0.1"
+libraryDependencies += "com.ing.baker" %% "baker-runtime" % "2.0.1"
+libraryDependencies += "com.ing.baker" %% "baker-compiler" % "2.0.1"
 ```
 
 As of 1.3.x we cross compile to both scala 2.11 and 2.12. Earlier releases are only available for 2.11.
 
 # How to contribute?
 
-Execute the following commands in your terminal to get started with the development of BAKER.
-
+Execute the following commands in your terminal to get started with the development of Baker.
 
 ```
 $ git clone https://github.com/ing-bank/baker.git
@@ -114,11 +113,22 @@ A -> { B C }
 }
 ```
 
-To create a PNG, run:
+Assuming you have the graphviz `dot` command you can create an SVG by running:
 
 ```
 dot -v -Tsvg -O graph.dot
 ```
+
+Alternatively you can use [graphviz-java](https://github.com/nidi3/graphviz-java) to generate the SVG in your code:
+
+```scala
+import guru.nidi.graphviz.engine.{Format, Graphviz}
+import guru.nidi.graphviz.parse.Parser
+
+val g = Parser.read(getRecipeVisualization)
+Graphviz.fromGraph(g).render(Format.SVG).toString
+```
+
 
 Preview the results:
 
@@ -130,16 +140,6 @@ You are all set to visualize your recipes now!
 
 You can also use custom fonts, for more info see <http://www.graphviz.org/doc/fontfaq.txt>.
 
-# Naming conventions
-Each interaction can be:
-
-1. Synchronous - wait on a response;
-2. Or asynchronous - get an acknowledgement only, while the outcome is received later;
-
-Model the result of a synchronous interaction with two events: **Successful** and **Failed**. For example the ValidateOrder interaction could fire OrderValidationSuccessful or OrderValidationFailed events.
-
-Model the acknowledgment from an asynchronous operation with an **Accepted** event. The actual result (received at a later stage) of the interaction is modelled as above.
-
 # References
-1. DOT Graph Description Language (https://en.wikipedia.org/wiki/DOT_(graph_description_language)) - explain more about the format Baker uses to produce a graphical representation of the recipe;
+1. DOT Graph Description Language (https://en.wikipedia.org/wiki/DOT_(graph_description_language)) - explains more about the format Baker uses to produce a graphical representation of the recipe;
 2. Order fulfillment (https://en.wikipedia.org/wiki/Order_fulfillment) - gives an idea about the theory behind order fulfillment strategies. As you are in the business of producing and selling products to people, you are in the business of fulfillment;

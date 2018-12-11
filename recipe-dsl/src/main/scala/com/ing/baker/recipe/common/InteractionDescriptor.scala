@@ -7,9 +7,33 @@ import com.ing.baker.types
   */
 trait InteractionDescriptor {
 
-  val interaction: Interaction
-
+  /**
+    * The name of the interaction.
+    */
   val name: String
+
+  /**
+    * The original name of the interaction.
+    */
+  val originalName: String
+
+  /**
+    * The retry exhausted event name
+    *
+    * @return
+    */
+  def retryExhaustedEventName: String = this.name + exhaustedEventAppend
+
+  /**
+    * The input ingredients.
+    *
+    */
+  val inputIngredients: Seq[Ingredient]
+
+  /**
+    * The interaction output.
+    */
+  val output: Seq[Event]
 
   /**
     * A set of names of the events AND preconditions (events)
@@ -35,7 +59,6 @@ trait InteractionDescriptor {
     * This is used to overwrite the name used for the output ingredient
     */
   val overriddenOutputIngredientName: Option[String]
-
 
   /**
     * This is used to overwrite the name used for the output event and for the ingredients created by the event

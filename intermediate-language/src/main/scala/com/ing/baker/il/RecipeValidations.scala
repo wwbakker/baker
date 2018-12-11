@@ -1,14 +1,14 @@
 package com.ing.baker.il
 
 import com.ing.baker.il.petrinet.InteractionTransition
-import com.ing.baker.petrinet.api.PetriNetAnalysis
-import com.ing.baker.types.PrimitiveType
+import com.ing.baker.petrinet.api._
+import com.ing.baker.types
 
 import scala.collection.mutable
 
 object RecipeValidations {
 
-  def validateInteraction(compiledRecipe: CompiledRecipe)(interactionTransition: InteractionTransition[_]): Seq[String] = {
+  def validateInteraction(compiledRecipe: CompiledRecipe)(interactionTransition: InteractionTransition): Seq[String] = {
 
     val validationErrors: mutable.MutableList[String] = mutable.MutableList.empty[String]
 
@@ -17,7 +17,7 @@ object RecipeValidations {
 
     // check if the process id argument type is correct
     interactionTransition.requiredIngredients.filter(id => id.name.equals(processIdName)).map {
-      case IngredientDescriptor(_ , PrimitiveType(javaType)) if javaType == classOf[String] =>
+      case IngredientDescriptor(_ , types.CharArray)  =>
       case IngredientDescriptor(_ , incompatibleType) => validationErrors += s"Non supported process id type: ${incompatibleType} on interaction: '$interactionTransition'"
     }
 
@@ -62,8 +62,8 @@ object RecipeValidations {
   }
 
   def validateNoCycles(compiledRecipe: CompiledRecipe): Seq[String] = {
-    val cycle = compiledRecipe.petriNet.innerGraph.findCycle
-    cycle map (c => s"The petrinet topology contains a cycle: $c") toSeq
+    val cycle: Option[compiledRecipe.petriNet.innerGraph.Cycle] = compiledRecipe.petriNet.innerGraph.findCycle
+    cycle.map(c => s"The petrinet topology contains a cycle: $c").toList
   }
 
   def validateAllInteractionsExecutable(compiledRecipe: CompiledRecipe): Seq[String] = {

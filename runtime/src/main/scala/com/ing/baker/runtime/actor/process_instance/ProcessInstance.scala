@@ -2,33 +2,31 @@ package com.ing.baker.runtime.actor.process_instance
 
 import akka.actor._
 import akka.event.{DiagnosticLoggingAdapter, Logging}
-import akka.persistence.{DeleteMessagesFailure, DeleteMessagesSuccess, Recovery}
+import akka.persistence.{DeleteMessagesFailure, DeleteMessagesSuccess}
+import cats.effect.IO
+import cats.syntax.apply._
 import com.ing.baker.petrinet.api._
-import com.ing.baker.petrinet.runtime.EventSourcing._
-import com.ing.baker.petrinet.runtime.ExceptionStrategy.{Continue, RetryWithDelay}
-import com.ing.baker.petrinet.runtime._
-import com.ing.baker.runtime.actor.InternalBakerMessage
 import com.ing.baker.runtime.actor.process_instance.ProcessInstance._
+import com.ing.baker.runtime.actor.process_instance.ProcessInstanceEventSourcing._
 import com.ing.baker.runtime.actor.process_instance.ProcessInstanceLogger._
 import com.ing.baker.runtime.actor.process_instance.ProcessInstanceProtocol._
+import com.ing.baker.runtime.actor.process_instance.internal.ExceptionStrategy.{Continue, RetryWithDelay}
+import com.ing.baker.runtime.actor.process_instance.internal._
+import com.ing.baker.runtime.actor.process_instance.{ProcessInstanceProtocol => protocol}
 import com.ing.baker.runtime.actor.serialization.Encryption
 
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 import scala.language.existentials
 import scala.util.Try
-import akka.pattern.pipe
-import cats.effect.IO
-import cats.syntax.apply._
 
 object ProcessInstance {
 
-  case class Settings(
-                       executionContext: ExecutionContext,
-                       idleTTL: Option[FiniteDuration],
-                       encryption: Encryption)
+  case class Settings(executionContext: ExecutionContext,
+                      idleTTL: Option[FiniteDuration],
+                      encryption: Encryption)
 
-  private case class IdleStop(seq: Long) extends InternalBakerMessage
+  private case class IdleStop(seq: Long) extends NoSerializationVerificationNeeded
 
   def persistenceIdPrefix(processType: String) = s"process-$processType-"
 
@@ -41,40 +39,60 @@ object ProcessInstance {
     else
       None
   }
+
+  def props[P : Identifiable, T : Identifiable, S, E](processType: String, petriNet: PetriNet[P, T], runtime: ProcessInstanceRuntime[P, T, S, E], settings: Settings): Props =
+    Props(new ProcessInstance[P, T, S, E](
+      processType,
+      petriNet,
+      settings,
+      runtime)
+    )
 }
 
 /**
   * This actor is responsible for maintaining the state of a single petri net instance.
   */
-class ProcessInstance[P[_], T[_], S, E](processType: String,
-                                        processTopology: PetriNet[P[_], T[_]],
-                                        settings: Settings,
-                                        runtime: PetriNetRuntime[P, T, S, E],
-                                        replayHistory: Boolean = true, // This is the default behaviour of a persistent actor
-                                        override implicit val placeIdentifier: Identifiable[P[_]],
-                                        override implicit val transitionIdentifier: Identifiable[T[_]]) extends ProcessInstanceRecovery[P, T, S, E](processTopology, settings.encryption, runtime.eventSource) {
+class ProcessInstance[P : Identifiable, T : Identifiable, S, E](
+     processType: String,
+     petriNet: PetriNet[P, T],
+     settings: Settings,
+     runtime: ProcessInstanceRuntime[P, T, S, E]) extends ProcessInstanceEventSourcing[P, T, S, E](petriNet, settings.encryption, runtime.eventSource) {
 
+  import context.dispatcher
 
   val log: DiagnosticLoggingAdapter = Logging.getLogger(this)
 
   val processId = context.self.path.name
 
+  val executor = runtime.jobExecutor(petriNet)
+
   override def persistenceId: String = processId2PersistenceId(processType, processId)
 
-  import context.dispatcher
+  override def receiveCommand: Receive = uninitialized
 
-  val executor = runtime.jobExecutor(topology)
+  private implicit def marshallMarking(marking: Marking[Any]): Marking[Id] = marking.asInstanceOf[Marking[P]].marshall
 
-  override def receiveCommand = uninitialized
+  private implicit def fromExecutionInstance(instance: internal.Instance[P, T, S]): protocol.InstanceState =
+    protocol.InstanceState(instance.sequenceNr, instance.marking.marshall, instance.state, instance.jobs.mapValues(fromExecutionJob(_)).map(identity))
+
+  private implicit def fromExecutionJob(job: internal.Job[P, T, S]): protocol.JobState =
+    protocol.JobState(job.id, job.transition.getId, job.consume.marshall, job.input, job.failure.map(fromExecutionExceptionState))
+
+  private implicit def fromExecutionExceptionState(exceptionState: internal.ExceptionState): protocol.ExceptionState =
+    protocol.ExceptionState(exceptionState.failureCount, exceptionState.failureReason, fromExecutionExceptionStrategy(exceptionState.failureStrategy))
+
+  private implicit def fromExecutionExceptionStrategy(strategy: internal.ExceptionStrategy): protocol.ExceptionStrategy = strategy match {
+    case internal.ExceptionStrategy.Fatal                     => protocol.ExceptionStrategy.Fatal
+    case internal.ExceptionStrategy.BlockTransition           => protocol.ExceptionStrategy.BlockTransition
+    case internal.ExceptionStrategy.RetryWithDelay(delay)     => protocol.ExceptionStrategy.RetryWithDelay(delay)
+    case internal.ExceptionStrategy.Continue(marking, output) => protocol.ExceptionStrategy.Continue(marking.asInstanceOf[Marking[P]].marshall, output)
+  }
 
   def uninitialized: Receive = {
-    case Initialize(markingData, state) ⇒
+    case Initialize(initialMarking, state) ⇒
 
-      val initialMarking = unmarshal[P](markingData, id => topology.places.getById(id, "place in petrinet"))
-      val uninitialized = Instance.uninitialized[P, T, S](processTopology)
+      val uninitialized = Instance.uninitialized[P, T, S](petriNet)
       val event = InitializedEvent(initialMarking, state)
-
-      system.eventStream.publish(ProcessInstanceEvent(processType, processId, event))
 
       persistEvent(uninitialized, event) {
         eventSource.apply(uninitialized)
@@ -82,7 +100,7 @@ class ProcessInstance[P[_], T[_], S, E](processType: String,
           .andThen {
             case (updatedInstance, _) ⇒
               context become running(updatedInstance, Map.empty)
-              sender() ! Initialized(marshal(initialMarking), state)
+              sender() ! Initialized(initialMarking, state)
           }
       }
 
@@ -97,10 +115,12 @@ class ProcessInstance[P[_], T[_], S, E](processType: String,
 
   def waitForDeleteConfirmation(instance: Instance[P, T, S]): Receive = {
     case DeleteMessagesSuccess(toSequenceNr) =>
-      log.debug(s"Process history successfully deleted (up to event sequence $toSequenceNr), stopping the actor")
+
+      log.processHistoryDeletionSuccessful(processId, toSequenceNr)
+
       context.stop(context.self)
     case DeleteMessagesFailure(cause, toSequenceNr) =>
-      log.error(cause, s"Process events are requested to be deleted up to $toSequenceNr sequence number, but delete operation failed.")
+      log.processHistoryDeletionFailed(processId, toSequenceNr, cause)
       context become running(instance, Map.empty)
   }
 
@@ -123,12 +143,10 @@ class ProcessInstance[P[_], T[_], S, E](processType: String,
     case GetState ⇒
       sender() ! fromExecutionInstance(instance)
 
-    case event@TransitionFiredEvent(jobId, t, correlationId, timeStarted, timeCompleted, consumed, produced, output) ⇒
+    case event @ TransitionFiredEvent(jobId, transitionId, correlationId, timeStarted, timeCompleted, consumed, produced, output) ⇒
 
-      val transition = t.asInstanceOf[T[_]]
-      val transitionId = transitionIdentifier(transition).value
+      val transition = instance.petriNet.transitions.getById(transitionId)
 
-      system.eventStream.publish(ProcessInstanceEvent(processType, processId, event))
       log.transitionFired(processId, transition.toString, jobId, timeStarted, timeCompleted)
 
       persistEvent(instance, event)(
@@ -136,18 +154,16 @@ class ProcessInstance[P[_], T[_], S, E](processType: String,
           .andThen(step)
           .andThen {
             case (updatedInstance, newJobs) ⇒
-              sender() ! TransitionFired(jobId, transitionId, correlationId, marshal[P](consumed.asInstanceOf[Marking[P]]), marshal[P](produced.asInstanceOf[Marking[P]]), fromExecutionInstance(updatedInstance), newJobs.map(_.id))
+              sender() ! TransitionFired(jobId, transitionId, correlationId, consumed, produced, updatedInstance, newJobs.map(_.id), output)
               context become running(updatedInstance, scheduledRetries - jobId)
               updatedInstance
           }
       )
 
-    case event@TransitionFailedEvent(jobId, t, correlationId, timeStarted, timeFailed, consume, input, reason, strategy) ⇒
+    case event @ TransitionFailedEvent(jobId, transitionId, correlationId, timeStarted, timeFailed, consume, input, reason, strategy) ⇒
 
-      val transition = t.asInstanceOf[T[_]]
-      val transitionId = transitionIdentifier(transition).value
+      val transition = instance.petriNet.transitions.getById(transitionId)
 
-      system.eventStream.publish(ProcessInstanceEvent(processType, processId, event))
       log.transitionFailed(processId, transition.toString, jobId, timeStarted, timeFailed, reason)
 
       strategy match {
@@ -160,26 +176,23 @@ class ProcessInstance[P[_], T[_], S, E](processType: String,
           persistEvent(instance, event)(
             eventSource.apply(instance)
               .andThen { updatedInstance ⇒
-
                 val retry = system.scheduler.scheduleOnce(delay milliseconds) {
                   executeJob(updatedInstance.jobs(jobId), originalSender)
                 }
-                sender() ! TransitionFailed(jobId, transitionId, correlationId, marshal[P](consume.asInstanceOf[Marking[P]]), input, reason, strategy)
+                sender() ! TransitionFailed(jobId, transitionId, correlationId, consume, input, reason, strategy)
                 context become running(updatedInstance, scheduledRetries + (jobId -> retry))
               }
           )
 
         case Continue(produced, out) =>
-          val consumedMarking = consume.asInstanceOf[Marking[P]]
-          val producedMarking = produced.asInstanceOf[Marking[P]]
-          val transitionFiredEvent = TransitionFiredEvent[P, T, E](
-            jobId, transition, correlationId, timeStarted, timeFailed, consumedMarking, producedMarking, out.asInstanceOf[E])
+          val transitionFiredEvent = TransitionFiredEvent(
+            jobId, transitionId, correlationId, timeStarted, timeFailed, consume, produced, out)
 
           persistEvent(instance, transitionFiredEvent)(
             eventSource.apply(instance)
               .andThen(step)
               .andThen { case (updatedInstance, newJobs) ⇒
-                sender() ! TransitionFired(jobId, transitionId, correlationId, marshal[P](consumedMarking), marshal[P](producedMarking), fromExecutionInstance(updatedInstance), newJobs.map(_.id))
+                sender() ! TransitionFired(jobId, transitionId, correlationId, consume, produced, updatedInstance, newJobs.map(_.id), out)
                 context become running(updatedInstance, scheduledRetries - jobId)
               })
 
@@ -187,7 +200,7 @@ class ProcessInstance[P[_], T[_], S, E](processType: String,
           persistEvent(instance, event)(
             eventSource.apply(instance)
               .andThen { updatedInstance ⇒
-                sender() ! TransitionFailed(jobId, transitionId, correlationId, marshal[P](consume.asInstanceOf[Marking[P]]), input, reason, strategy)
+                sender() ! TransitionFailed(jobId, transitionId, correlationId, consume, input, reason, strategy)
                 context become running(updatedInstance, scheduledRetries - jobId)
               })
       }
@@ -200,15 +213,13 @@ class ProcessInstance[P[_], T[_], S, E](processType: String,
         * This should only return once the initial transition is completed & persisted
         * That way we are sure the correlation id is persisted.
         */
-      val transition = topology.transitions.getById(transitionId, "transition in petrinet").asInstanceOf[T[Any]]
-
-      def alreadyReceived(id: String) = instance.receivedCorrelationIds.contains(id) || instance.jobs.values.exists(_.correlationId == Some(id))
+      val transition = petriNet.transitions.getById(transitionId, "transition in petrinet")
 
       correlationIdOption match {
-        case Some(correlationId) if alreadyReceived(correlationId) =>
+        case Some(correlationId) if instance.hasReceivedCorrelationId(correlationId) =>
             sender() ! AlreadyReceived(correlationId)
         case _ =>
-          runtime.jobPicker.createJob[S, Any](transition, input, correlationIdOption).run(instance).value match {
+          runtime.createJob(transition, input, correlationIdOption).run(instance).value match {
             case (updatedInstance, Right(job)) ⇒
               executeJob(job, sender())
               context become running(updatedInstance, scheduledRetries)
@@ -221,12 +232,12 @@ class ProcessInstance[P[_], T[_], S, E](processType: String,
       }
 
     case Initialize(_, _) ⇒
-      sender() ! AlreadyInitialized
+      sender() ! AlreadyInitialized(processId)
   }
 
   def step(instance: Instance[P, T, S]): (Instance[P, T, S], Set[Job[P, T, S]]) = {
 
-    runtime.jobPicker.allEnabledJobs.run(instance).value match {
+    runtime.allEnabledJobs.run(instance).value match {
       case (updatedInstance, jobs) ⇒
 
         if (jobs.isEmpty && updatedInstance.activeJobs.isEmpty)
@@ -247,16 +258,19 @@ class ProcessInstance[P[_], T[_], S, E](processType: String,
     Try(context.self).foreach { self =>
 
       // executes the IO task on the ExecutionContext
-      val future = IO.shift(settings.executionContext) *> executor(job)
+      val io = IO.shift(settings.executionContext) *> executor(job)
 
-      // translate to future and pipes the result of the future back to the actor
-      future.unsafeToFuture().pipeTo(self)(originalSender)
+      // pipes the result back this actor
+      io.unsafeRunAsync {
+        case Right(event)    => self.tell(event, originalSender)
+        case Left(exception) => self.tell(Status.Failure(exception), originalSender)
+      }
     }
   }
 
   def scheduleFailedJobsForRetry(instance: Instance[P, T, S]): Map[Long, Cancellable] = {
     instance.jobs.values.foldLeft(Map.empty[Long, Cancellable]) {
-      case (map, j @ Job(_, _, _, _, _, _, Some(com.ing.baker.petrinet.runtime.ExceptionState(failureTime, _, _, RetryWithDelay(delay))))) ⇒
+      case (map, j @ Job(_, _, _, _, _, _, Some(internal.ExceptionState(failureTime, _, _, RetryWithDelay(delay))))) ⇒
         val newDelay = failureTime + delay - System.currentTimeMillis()
         if (newDelay < 0) {
           executeJob(j, sender())
@@ -268,13 +282,6 @@ class ProcessInstance[P[_], T[_], S, E](processType: String,
         }
       case (acc, _) ⇒ acc
     }
-  }
-
-  override def recovery = {
-    if (replayHistory)
-      Recovery()
-    else
-      Recovery.none
   }
 
   override def onRecoveryCompleted(instance: Instance[P, T, S]) = {
