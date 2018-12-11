@@ -110,6 +110,7 @@ lazy val runtime = project.in(file("runtime"))
         akkaStreamTestKit,
         akkaInmemoryJournal,
         akkaPersistenceCassandra,
+        akkaCassandraLauncher,
         levelDB,
         levelDBJni,
         betterFiles,

@@ -149,8 +149,7 @@ class ProcessInstance[P : Identifiable, T : Identifiable, S, E](
 
       log.transitionFired(processId, transition.toString, jobId, timeStarted, timeCompleted)
 
-      persistEvent(instance, event)(
-        eventSource.apply(instance)
+      val applyEvent: Event => Instance[P, T, S] = eventSource.apply(instance)
           .andThen(step)
           .andThen {
             case (updatedInstance, newJobs) ⇒
@@ -158,7 +157,16 @@ class ProcessInstance[P : Identifiable, T : Identifiable, S, E](
               context become running(updatedInstance, scheduledRetries - jobId)
               updatedInstance
           }
-      )
+
+      import com.ing.baker.il.petrinet.{EventTransition, InteractionTransition}
+
+      transition match {
+        case EventTransition(_, true, _) => persistEvent(instance, event)(applyEvent)
+        case _: InteractionTransition    => persistEvent(instance, event)(applyEvent)
+        case _ => applyEvent(event)
+      }
+
+
 
     case event @ TransitionFailedEvent(jobId, transitionId, correlationId, timeStarted, timeFailed, consume, input, reason, strategy) ⇒
 

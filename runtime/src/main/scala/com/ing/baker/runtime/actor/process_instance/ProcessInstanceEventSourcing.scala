@@ -125,7 +125,9 @@ abstract class ProcessInstanceEventSourcing[P : Identifiable, T : Identifiable, 
   def onRecoveryCompleted(state: Instance[P, T, S])
 
   def persistEvent[O](instance: Instance[P, T, S], e: Event)(fn: Event => O): Unit = {
+
     val serializedEvent = serializer.serializeEvent(e)(instance)
+
     persist(serializedEvent) { persisted => fn(e) }
   }
 

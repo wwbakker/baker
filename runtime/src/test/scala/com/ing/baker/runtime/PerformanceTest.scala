@@ -49,7 +49,7 @@ class PerformanceTest extends BakerRuntimeTestBase {
 
   "Baker" should {
 
-    "should process really fast" ignore {
+    "should process really fast" in {
 
       val akkaCassandraSystem = ActorSystem("Perf", ConfigFactory.parseString(cassandraConfig))
 
@@ -102,7 +102,7 @@ class PerformanceTest extends BakerRuntimeTestBase {
         }
       }
 
-      Thread.sleep(1000 * 120)
+      Thread.sleep(1000 * 60 * 2)
     }
   }
 }
