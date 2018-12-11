@@ -1,30 +1,18 @@
-package com.ing.baker.runtime.core
+package com.ing.baker.runtime
 
 import java.util.UUID
 import java.util.concurrent.{Executors, TimeUnit}
 
 import akka.actor.ActorSystem
-import com.ing.baker.TestRecipeHelper
-import com.ing.baker.TestRecipeHelper.InitialEvent
+import com.ing.baker.BakerRuntimeTestBase
+import com.ing.baker.recipe.TestRecipe.InitialEvent
 import com.typesafe.config.ConfigFactory
 
 import scala.concurrent.ExecutionContext
 
-class PerformanceTest extends TestRecipeHelper {
+class PerformanceTest extends BakerRuntimeTestBase {
 
   override def actorSystemName = "PerformanceTest"
-
-  import com.codahale.metrics.MetricRegistry
-
-  val metrics = new MetricRegistry
-
-  import com.codahale.metrics.ConsoleReporter
-
-  val reporter: ConsoleReporter = ConsoleReporter.forRegistry(metrics)
-    .convertRatesTo(TimeUnit.SECONDS)
-    .convertDurationsTo(TimeUnit.MILLISECONDS).build
-
-  reporter.start(1, TimeUnit.SECONDS)
 
 //  CassandraLauncher.start(
 //    new java.io.File("target/cassandra"),
@@ -33,8 +21,7 @@ class PerformanceTest extends TestRecipeHelper {
 //    port = 9042,
 //    CassandraLauncher.classpathForResources("logback-test.xml")
 //  )
-
-  Thread.sleep(10 * 1000)
+//  Thread.sleep(10 * 1000)
 
   val cassandraConfig =
     s"""
@@ -59,11 +46,24 @@ class PerformanceTest extends TestRecipeHelper {
        |
      """.stripMargin
 
-  val akkaCassandraSystem = ActorSystem("Perf", ConfigFactory.parseString(cassandraConfig))
 
   "Baker" should {
 
-    "should process really fast" in {
+    "should process really fast" ignore {
+
+      val akkaCassandraSystem = ActorSystem("Perf", ConfigFactory.parseString(cassandraConfig))
+
+      import com.codahale.metrics.MetricRegistry
+
+      val metrics = new MetricRegistry
+
+      import com.codahale.metrics.ConsoleReporter
+
+      val reporter: ConsoleReporter = ConsoleReporter.forRegistry(metrics)
+        .convertRatesTo(TimeUnit.SECONDS)
+        .convertDurationsTo(TimeUnit.MILLISECONDS).build
+
+      reporter.start(1, TimeUnit.SECONDS)
 
       val (baker, recipeId) = setupBakerWithRecipe("TestRecipe")(akkaCassandraSystem)
 

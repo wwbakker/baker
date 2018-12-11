@@ -23,7 +23,8 @@ object Dependencies {
   val akkaStream =                "com.typesafe.akka"          %% "akka-stream"                        % akkaVersion
   val akkaPersistence =           "com.typesafe.akka"          %% "akka-persistence"                   % akkaVersion
   val akkaPersistenceQuery =      "com.typesafe.akka"          %% "akka-persistence-query"             % akkaVersion
-  val akkaPersistenceCassandra =  "com.typesafe.akka"          %% "akka-persistence-cassandra"         % "0.54"
+  val akkaPersistenceCassandra =  "com.typesafe.akka"          %% "akka-persistence-cassandra"         % "0.84"
+  val akkaCassandraLauncher =     "com.typesafe.akka"         %% "akka-persistence-cassandra-launcher" % "0.84"
   val akkaCluster =               "com.typesafe.akka"          %% "akka-cluster"                       % akkaVersion
   val akkaClusterSharding =       "com.typesafe.akka"          %% "akka-cluster-sharding"              % akkaVersion
   val akkaSlf4j =                 "com.typesafe.akka"          %% "akka-slf4j"                         % akkaVersion
@@ -69,9 +70,6 @@ object Dependencies {
   val scalaCheck =                "org.scalacheck"             %% "scalacheck"                         % "1.13.4"
 
   val metrics = "io.dropwizard.metrics" % "metrics-core" % "4.0.0"
-
-  val akkaCassandra = "com.typesafe.akka" %% "akka-persistence-cassandra" % "0.84"
-  val akkaCassandraLauncher  = "com.typesafe.akka" %% "akka-persistence-cassandra-launcher" % "0.84"
 
   def scopeDeps(scope: String, modules: Seq[ModuleID]) =  modules.map(m => m % scope)
   def compileDeps(modules: ModuleID*) = modules.toSeq
