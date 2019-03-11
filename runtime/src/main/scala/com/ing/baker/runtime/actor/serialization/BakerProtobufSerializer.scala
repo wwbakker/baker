@@ -9,7 +9,6 @@ import com.ing.baker.runtime.actor.{process_instance, protobuf}
 import com.ing.baker.runtime.actor.recipe_manager.{RecipeManager, RecipeManagerProtocol}
 import com.ing.baker.runtime.actor.serialization.Encryption.NoEncryption
 import com.ing.baker.runtime.{actor, core}
-import com.ing.baker.runtime.actortyped
 import org.slf4j.LoggerFactory
 import scalapb.{GeneratedMessage, GeneratedMessageCompanion, Message}
 
@@ -94,9 +93,7 @@ class BakerProtobufSerializer(system: ExtendedActorSystem) extends SerializerWit
     Entry("RecipeManagerProtocol.RecipeFound", classOf[RecipeManagerProtocol.RecipeFound], actor.recipe_manager.protobuf.RecipeFound),
     Entry("RecipeManagerProtocol.NoRecipeFound", classOf[RecipeManagerProtocol.NoRecipeFound], actor.recipe_manager.protobuf.NoRecipeFound),
     Entry("RecipeManagerProtocol.GetAllRecipes", RecipeManagerProtocol.GetAllRecipes.getClass, actor.recipe_manager.protobuf.GetAllRecipes),
-    Entry("RecipeManagerProtocol.AllRecipes", classOf[RecipeManagerProtocol.AllRecipes], actor.recipe_manager.protobuf.AllRecipes),
-
-    Entry("RecipeManagerTyped.RecipeAdded", classOf[actortyped.recipe_manager.RecipeManagerTyped.RecipeAdded], actortyped.recipe_manager.protobuf.RecipeAddedTyped)
+    Entry("RecipeManagerProtocol.AllRecipes", classOf[RecipeManagerProtocol.AllRecipes], actor.recipe_manager.protobuf.AllRecipes)
   )
 
   override def identifier: Int = BakerProtobufSerializer.identifier
